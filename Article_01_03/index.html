@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8"/><meta content="width=device-width, initial-scale=1" name="viewport"/><title>Metadata-driven modelling of the core data layer</title><meta content="Metadata-driven modelling of the core data layer" property="og:title"/></head><body><article><p>The previous articles established the need for a documented Core Data Model and explained why Universal Data Model principles are useful for representing business meaning. This article describes how that model is implemented.</p><p>The implementation separates the model into conceptual, logical, and physical layers. Each layer answers a different question and gives each decision one authoritative home:</p><ul><li><strong>Conceptual:</strong> What business concepts and relationships exist?</li><li><strong>Logical:</strong> What is the complete business structure, including attributes, keys, and history rules?</li><li><strong>Physical:</strong> How is that logical contract implemented in a target platform?</li></ul><p>The separation keeps business meaning independent from implementation detail. It also creates a controlled generation path: conceptual definitions provide the vocabulary, logical YAML provides the semantic contract, and physical YAML projects that contract into a Fabric-compatible structure. When meaning is introduced in pipelines and manually maintained documentation there is a constant need to deal with conflicting definitions.</p><figure><img alt="A three-stage diagram follows Party through the conceptual, logical, and physical layers. The conceptual layer defines business concepts and relationships, the logical layer adds attributes, keys, mappings, and history rules, and the physical layer adds target-specific types, hashes, tables, and ETL fields." src="https://georgeschoofs.github.io/edm-articles-medium/Article_01_03/images/fig-01-party-three-layers.png"/><figcaption>Figure 1. The Party concept moves from business vocabulary to a complete semantic contract and then to a target-specific implementation.</figcaption></figure><h2>One example across the layers: Party</h2><p><code>Party</code> is a useful example because it is a shared business concept with many forms and relationships. A Party can represents internal and external relations, including companies, people, and organisational units. It is a regular entity, with subtypes such as <code>Location</code>, <code>Contact</code>, <code>Organisation</code>, <code>Employee</code>, and <code>Organizational Unit</code>.</p><p>Party also participates in many relationships. It can have contact mechanisms and identifications, fulfill party roles, participate in work-effort roles, play roles on invoices, and have status, terms, or geographic associations. The conceptual layer records these business relationships without deciding how their columns will be stored.</p><h2>The conceptual layer: the business vocabulary</h2><p>The conceptual layer describes the business language of the model. In the implementation, the conceptual model is held as a collection of entities and relationships in <code>conceptual.yml</code>, with a Draw.io representation available for visual review.</p><p>A simplified conceptual definition for Party looks like this:</p><pre class="language-yaml" data-code-block-lang="yaml">
+id: conceptual.party
+label: Party
+name: conceptual.party
+description: All internal and external relations. Either companies or people or organizational units etc.
+entitytype: regular
+tags:
+    - party
+relationships:
+    - id: conceptual.rel.party_to_party_supertype
+      label: is a
+      source: conceptual.party
+      target: conceptual.party_supertype
+      cardinality: 1:1
+    - id: conceptual.rel.party_to_party_roles
+      label: fulfills
+      source: conceptual.party
+      target: conceptual.party_roles
+      cardinality: 1:N
+    - id: conceptual.rel.party_to_party_contact_mechanism
+      label: has
+      source: conceptual.party
+      target: conceptual.party_contact_mechanism
+      cardinality: 1:N
+
+</pre><p>The complete implementation contains more relationships, but the important boundary is visible in this excerpt. The conceptual layer defines the entity, its description, its UDM classification, and the cardinality of its relationships. It does not define columns, hash components, SQL types, table names, or ETL system fields.</p><p>This layer is where modelling decisions should be reviewed with business stakeholders. Before adding a new entity, the question is whether the proposed concept is genuinely new, a type, a subtype, a role, or a relationship between concepts that already exist. That decision belongs in the business vocabulary before implementation detail is introduced.</p><h2>The logical layer: the semantic contract</h2><p>The logical layer turns the conceptual vocabulary into a complete business structure. The logical Party definition is stored as <code>logical.party.yml</code>. It retains the conceptual identity through <code>derivedfrom: conceptual.party</code> and adds the information required to build and use the entity:</p><ul><li>primary and alternate keys</li><li>business attributes and generic data types</li><li>foreign-key attributes</li><li>relationship attribute mappings</li><li>confidentiality metadata</li><li>effective dates and history behaviour</li></ul><p>The logical definition of Party includes a generated hash-key placeholder, a business key, and business attributes:</p><pre class="language-yaml" data-code-block-lang="yaml">
+id: logical.party
+label: Party
+name: logical.party
+description: All internal and external relations. Either companies or people or organizational units etc.
+entitytype: regular
+derivedfrom: 
+    - conceptual.party
+keys:
+    primary:
+        - party_key
+    alternates:
+        - name: business_key
+          columns:
+            - party_id
+            - record_source
+            - party_type_key
+
+columns:
+    - id: logical.party.party_key
+      name: party_key
+      description: Hash key (primary key) derived from business key columns
+      dataType: string
+    - id: logical.party.party_type_key
+      name: party_type_key
+      description: Fk to party_type (classifies)
+      dataType: string
+    - id: logical.party.party_id
+      name: party_id
+      description: Identifier for the party in the source system
+      dataType: string
+    - id: logical.party.party_name
+      name: party_name
+      description: Name for the party
+      dataType: string
+
+</pre><p>The logical layer also carries the relationships from the conceptual model, now with explicit attribute mappings. For example, the Party-to-Party-Role relationship maps <code>party.party_key</code> to <code>party_roles.party_key</code> with cardinality <code>1:N</code>.</p><p>History is a logical modelling decision as well. Party uses the <code>driving_key_set</code> strategy with <code>party_hk</code> as its driving key and <code>load_datetime</code> as the ordering value. The history grain therefore follows the Party entity key. Other entities may use a different driving-key set when several related records must change together.</p><p>The logical layer is the authoritative semantic contract. It is detailed enough to drive documentation and generation, while remaining independent of actual table names, SQL physical types, hash algorithms, and operational process columns.</p><h2>The physical layer: a target-specific projection</h2><p>The physical layer implements the logical contract for a target platform. The Party physical definition is stored as <code>physical.party.yml</code> and projects the entity to the <code>party</code> table in the <code>core</code> schema.</p><p>The physical file resolves generic logical types into Fabric SQL types and adds implementation details. A simplified example for a <code>party</code> is: :</p><pre class="language-yaml" data-code-block-lang="yaml">
+id: physical.party
+entity: party
+table: core.party
+schema: core
+derivedfrom:
+- logical.party
+
+business_columns:
+    - name: party_id
+      logical_type: string
+      physical_type: varchar(1024)
+      nullable: true
+      derivedfrom:
+      - logical.party.party_id
+    - name: party_name
+      logical_type: string
+      physical_type: varchar(1024)
+      nullable: true
+      derivedfrom:
+      - logical.party.party_name
+
+hash_columns:
+    - name: party_hk
+      hash_type: primary_key
+      nullable: false
+      ref_entity: party
+      primary_compose_from:
+      - party_id
+      - record_source
+      - party_type_hk
+    - name: party_type_hk
+      hash_type: foreign_key
+      nullable: false
+      ref_entity: party_type
+
+system_columns:
+    - name: load_datetime
+      physical_type: datetime2(3)
+      nullable: false
+    - name: cdc
+      physical_type: varchar(1)
+      nullable: false
+    - name: record_hk
+      physical_type: varchar(64)
+      nullable: false
+    - name: process_run_id
+      physical_type: varchar(1024)
+      nullable: false
+
+</pre><p>The physical definition adds the Data Vault 2.0 hash implementation. <code>party_hk</code> is a <code>varchar(64)</code> surrogate key derivedfrom <code>party_id</code>, <code>record_source</code>, and the Party Type reference. <code>party_type_hk</code> is a foreign-key hash pointing to <code>party_type</code>.</p><p>It also adds ETL-only columns such as <code>load_datetime</code>, <code>cdc</code>, <code>record_hk</code>, <code>process_run_id</code>, and <code>current_record</code>. These fields support loading, change detection, and current-record selection. They are part of the physical contract, not the business meaning of Party.</p><p>The boundary matters. A Fabric datatype, table name, hash component, or CDC flag can change when the target implementation changes. The business definition of Party, its identity, and its relationships should remain stable.</p><h2>From metadata to generated artefacts</h2><p>The three layers form a generation path rather than three independent descriptions:</p><figure><img alt="A workflow separates human-reviewed modelling from automated generation. Modelers review the conceptual vocabulary and enrich and approve logical YAML. The approved contract generates physical YAML and a core table contract, OKF documentation, and Silver ingestion templates, which are then checked with schema and cross-layer validation." src="https://georgeschoofs.github.io/edm-articles-medium/Article_01_03/images/fig-02-reviewed-generation-path.png"/><figcaption>Figure 2. Human approval establishes the logical contract; generation and validation carry it into aligned implementation and documentation artefacts.</figcaption></figure><p>Human review continues through the logical layer. Modellers review the conceptual vocabulary in Draw.io and YAML, then enrich the logical model with attributes, keys, relationships, and history rules. Approval of the logical YAML establishes the semantic contract: this is where decisions about business meaning are made.</p><p>From that contract, generation is automated. Physical generation applies target-platform rules for types, hashes, nullability, table metadata, and ETL columns; documentation generation produces the OKF entity pages, including descriptions, keys, relationships, history behaviour, and Silver SQL templates. These outputs still need validation, but they should not introduce new semantic decisions. A change in meaning starts with human review of the model and then flows through the generated artefacts.</p><p>This reduces duplication of efforts. Changes in the logical layer introduce a change flow though the entire stack where each change is pre-defined.  </p><h2>YAML, Draw.io, and validation</h2><p>YAML is used as version-controlled model metadata. The conceptual model is held as a collection, logical entities are split into one file per entity, and physical entities have one target-specific file each. This makes changes reviewable in source control and allows tooling to work on a single entity without loading the whole model into an editor.</p><p>Draw.io provides a visual editing and review surface, especially for the conceptual model. The implementation stores synchronisation metadata inside the artefacts, including source paths and content hashes. A conversion can therefore compare content rather than relying only on timestamps.</p><p>Each layer has a JSON Schema. The conceptual schema validates entity identifiers, labels, entity types, controlled values, and relationship cardinalities. The logical schema validates entity structure, keys, columns, relationships, <code>derivedfrom</code> references, and globally unique column identifiers. The physical schema validates target tables, business columns, hash columns, system columns, and history configuration.</p><p>Schema validation catches structural errors early. Custom validation adds rules that a basic JSON Schema cannot express easily, such as uniqueness across all entity column identifiers and cross-layer consistency. This distinction is important: the schema defines what a valid document looks like, while custom validation checks relationships and constraints across the assembled model.</p><h2>Synchronisation and drift</h2><p>The model is a chain: Draw.io, conceptual YAML, logical YAML, physical YAML, source mappings, dbt models, and generated documentation. A change in one layer can make the chain inconsistent if the derived artefacts are not updated.</p><p>The practical rule is simple: changes should flow deliberately through the layers, and validation should run after generation. This makes the model easier to edit while keeping the generated contracts, documentation, and implementation aligned.</p><h2>Why the separation matters</h2><p>The conceptual layer makes the model reviewable as business vocabulary. The logical layer makes semantic decisions explicit and reusable. The physical layer makes those decisions executable on a target platform.</p><p>For the Party example, one stable business concept can therefore drive a documented <code>core.party</code> contract, a history implementation, source-to-Core ingestion templates, generated OKF documentation, and downstream analytical models. Each artefact has a clear role, and the relationships between artefacts are visible rather than implicit.</p><p>These benefits have to be set against the costs of maintaining the YAML models. Keeping the models in synch is a serious task, that requires a considerable effort.</p><p>Do the benefit outweigh the costs: I think often it can, and if the goal is to use AI having a model of your data is a prerequisite.</p><p>The next article examines the logical layer in greater depth. It explains why logical YAML is the authoritative change surface for the physical contract, dbt models, documentation, and AI-assisted modelling work.</p></article></body></html>
