@@ -11,6 +11,26 @@ h1, h2, h3 {
     font-family: Inter, Helvetica, Arial, sans-serif;
     font-weight: 700;
 }
+
+pre {
+    background: #f6f8fa;
+    border: 1px solid #e1e4e8;
+    border-radius: 8px;
+    padding: 1rem;
+    overflow-x: auto;
+    margin: 1.5rem 0;
+}
+
+pre, code {
+    font-family: "SF Mono", Consolas, Monaco, monospace;
+    font-size: 0.9em;
+}
+
+pre code {
+    background: none;
+    padding: 0;
+    font-size: inherit;
+}
 </style></head><body><article><h1>Metadata-driven modelling of the core data layer</h1><p>The previous articles established the need for a documented Core Data Model and explained why Universal Data Model principles are useful for representing business meaning. This article describes how that model is implemented.</p><p>The implementation separates the model into conceptual, logical, and physical layers. Each layer answers a different question and gives each decision one authoritative home:</p><ul><li><strong>Conceptual:</strong> What business concepts and relationships exist?</li><li><strong>Logical:</strong> What is the complete business structure, including attributes, keys, and history rules?</li><li><strong>Physical:</strong> How is that logical contract implemented in a target platform?</li></ul><p>The separation keeps business meaning independent from implementation detail. It also creates a controlled generation path: conceptual definitions provide the vocabulary, logical YAML provides the semantic contract, and physical YAML projects that contract into a Fabric-compatible structure. When meaning is introduced in pipelines and manually maintained documentation there is a constant need to deal with conflicting definitions.</p><figure><img alt="A three-stage diagram follows Party through the conceptual, logical, and physical layers. The conceptual layer defines business concepts and relationships, the logical layer adds attributes, keys, mappings, and history rules, and the physical layer adds target-specific types, hashes, tables, and ETL fields." src="https://georgeschoofs.github.io/edm-articles-medium/Article_01_03/images/fig-01-party-three-layers.png" style="max-width: 100%; height: auto;" width="700"/><figcaption>Figure 1. The Party concept moves from business vocabulary to a complete semantic contract and then to a target-specific implementation.</figcaption></figure><h2>One example across the layers: Party</h2><p><code>Party</code> is a useful example because it is a shared business concept with many forms and relationships. A Party can represents internal and external relations, including companies, people, and organisational units. It is a regular entity, with subtypes such as <code>Location</code>, <code>Contact</code>, <code>Organisation</code>, <code>Employee</code>, and <code>Organizational Unit</code>.</p><p>Party also participates in many relationships. It can have contact mechanisms and identifications, fulfill party roles, participate in work-effort roles, play roles on invoices, and have status, terms, or geographic associations. The conceptual layer records these business relationships without deciding how their columns will be stored.</p><h2>The conceptual layer: the business vocabulary</h2><p>The conceptual layer describes the business language of the model. In the implementation, the conceptual model is held as a collection of entities and relationships in <code>conceptual.yml</code>, with a Draw.io representation available for visual review.</p><p>A simplified conceptual definition for Party looks like this:</p><pre class="language-yaml" data-code-block-lang="yaml">
 id: conceptual.party
 label: Party
